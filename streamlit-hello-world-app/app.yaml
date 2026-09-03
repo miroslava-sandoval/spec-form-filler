@@ -1,36 +1,26 @@
-command: ["streamlit",   "run",  "app.py"]
-
-resources:
-  - name: databricks_token
-    secret:
-      scope: spec-app-secrets
-      key: databricks-token
+command:
+  - streamlit
+  - run
+  - app.py
 
 env:
-  
-  - name: DATABRICKS_HOST
-    value: 'https://onetakeda-usdev-gmsgq.cloud.databricks.com'
-
   - name: DATABRICKS_ENDPOINT
-    value: 'spec-form-filler'
+    value: "spec-form-filler"
 
   - name: DATABRICKS_WAREHOUSE_ID
-    value: spec-app-secrets
-
-  - name: DATABRICKS_TOKEN
-    valueFrom: databricks_token
+    value: "1184256991047feb"
 
   - name: TEXT_TABLE
-    value: 'us_gmsgq_dev.gms_us_alyt.spec_document_text_en'
+    value: "us_gmsgq_dev.gms_us_alyt.spec_document_text_en"
 
   - name: SCHEMAS_TABLE
-    value: 'us_gmsgq_dev.gms_us_alyt.form_schema_mapping'
+    value: "us_gmsgq_dev.gms_us_alyt.form_schema_mapping"
 
   - name: FEEDBACK_DELTA_TABLE
-    value: 'us_gmsgq_dev.gms_us_alyt.field_feedback_events'
+    value: "us_gmsgq_dev.gms_us_alyt.field_feedback_events"
 
   - name: TTP_TABLE
-    value: 'us_gmsgq_dev.gms_us_alyt.TTP_documents'
+    value: "us_gmsgq_dev.gms_us_alyt.TTP_documents"
 
   - name: FEEDBACK_BUFFER_DIR
     value: "/tmp/spec_mrs_feedback"
@@ -39,20 +29,19 @@ env:
     value: "50"
 
   - name: CHAT_ENDPOINT
-    value: 'databricks-claude-sonnet-4-6'
+    value: "databricks-claude-sonnet-4-6"
 
   - name: DATABRICKS_SQL_HTTP_PATH
-    value: '/sql/1.0/warehouses/1184256991047feb'
+    value: "/sql/1.0/warehouses/1184256991047feb"
 
   - name: VS_INDEX_FULL_NAME
-    value: 'us_gmsgq_dev.gms_us_alyt.field_rules_idx_cont'
+    value: "us_gmsgq_dev.gms_us_alyt.field_rules_idx_cont"
 
   - name: EMBEDDING_ENDPOINT
-    value: 'databricks-bge-large-en'
+    value: "databricks-bge-large-en"
 
   - name: VS_ENDPOINT
-    value: 'spec-form-filler-vs'
+    value: "spec-form-filler-vs"
 
   - name: VS_THRESHOLD
     value: "0.1"
-
