@@ -2,7 +2,6 @@ import os
 import io
 import json
 import time
-from wsgiref import headers
 import requests
 import streamlit as st
 import pandas as pd
@@ -10,8 +9,6 @@ from datetime import datetime
 from databricks import sql
 import uuid
 from pathlib import Path
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.core import Config
 
 # ---------------- Page config ----------------
 st.set_page_config(
@@ -85,18 +82,25 @@ SERVER_HOSTNAME = (
 )
 
 FEEDBACK_DELTA_TABLE = os.environ["FEEDBACK_DELTA_TABLE"]
+# ---------------- User authentication ----------------
+def get_user_token():
+    token = st.context.headers.get("X-Forwarded-Access-Token")
 
-dbx_config = Config()
-workspace = WorkspaceClient()
+    if not token:
+        raise RuntimeError(
+            "No user access token was provided by Databricks Apps."
+        )
+
+    return token
+
 
 # ---------------- SQL connection helper ----------------
 def get_sql_connection():
     return sql.connect(
         server_hostname=SERVER_HOSTNAME,
         http_path=SQL_HTTP_PATH,
-        credentials_provider=lambda: dbx_config.authenticate,
+        access_token=get_user_token(),
     )
-
 # ---------------- Title ----------------
 st.title("AI-Driven MRS Form Filling")
 st.caption(
@@ -325,12 +329,14 @@ def call_serving(
         }
     }
 
-    headers = workspace.config.authenticate()
-    headers["Content-Type"] = "application/json"
+    token = get_user_token()
 
     r = requests.post(
         INVOCATIONS_URL,
-        headers=headers,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
         data=json.dumps(payload),
         timeout=timeout,
     )
