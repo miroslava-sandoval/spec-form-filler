@@ -2,6 +2,7 @@ import os
 import io
 import json
 import time
+from wsgiref import headers
 import requests
 import streamlit as st
 import pandas as pd
@@ -9,6 +10,8 @@ from datetime import datetime
 from databricks import sql
 import uuid
 from pathlib import Path
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.core import Config
 
 # ---------------- Page config ----------------
 st.set_page_config(
@@ -41,7 +44,6 @@ KNOWN_SPEC_SUGGESTIONS = [
 # ---------------- Env validation ----------------
 REQUIRED_ENV_VARS = [
     "DATABRICKS_HOST",
-    "DATABRICKS_TOKEN",
     "DATABRICKS_ENDPOINT",
     "DATABRICKS_WAREHOUSE_ID",
     "TEXT_TABLE",
@@ -61,9 +63,7 @@ if missing:
 
 # ---------------- Env ----------------
 HOST = os.environ["DATABRICKS_HOST"].rstrip("/")
-TOKEN = os.environ["DATABRICKS_TOKEN"]
 SERVING_ENDPOINT = os.environ["DATABRICKS_ENDPOINT"]
-
 WAREHOUSE_ID = os.environ["DATABRICKS_WAREHOUSE_ID"]
 
 SQL_HTTP_PATH = (
@@ -86,12 +86,15 @@ SERVER_HOSTNAME = (
 
 FEEDBACK_DELTA_TABLE = os.environ["FEEDBACK_DELTA_TABLE"]
 
+dbx_config = Config()
+workspace = WorkspaceClient()
+
 # ---------------- SQL connection helper ----------------
 def get_sql_connection():
     return sql.connect(
         server_hostname=SERVER_HOSTNAME,
         http_path=SQL_HTTP_PATH,
-        access_token=TOKEN,
+        credentials_provider=lambda: dbx_config.authenticate,
     )
 
 # ---------------- Title ----------------
@@ -322,15 +325,16 @@ def call_serving(
         }
     }
 
+    headers = workspace.config.authenticate()
+    headers["Content-Type"] = "application/json"
+
     r = requests.post(
         INVOCATIONS_URL,
-        headers={
-            "Authorization": f"Bearer {TOKEN}",
-            "Content-Type": "application/json",
-        },
+        headers=headers,
         data=json.dumps(payload),
         timeout=timeout,
     )
+
 
     if not r.ok:
         raise RuntimeError(f"{r.status_code} — {r.text[:2000]}")
