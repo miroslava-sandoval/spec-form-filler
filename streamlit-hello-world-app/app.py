@@ -106,7 +106,10 @@ st.write(
     "Forwarded username:",
     st.context.headers.get("X-Forwarded-Preferred-Username")
 )
-
+st.write("User token received:", bool(_debug_token))
+st.write("Forwarded email:", st.context.headers.get("X-Forwarded-Email"))
+st.write("Warehouse ID:", WAREHOUSE_ID)
+st.write("SQL HTTP path:", SQL_HTTP_PATH)
 
 
 # ---------------- SQL connection helper ----------------
