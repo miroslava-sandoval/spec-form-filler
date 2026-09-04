@@ -331,6 +331,12 @@ def call_serving(
 
     token = get_user_token()
 
+    st.write("User token received:", bool(token))
+    st.write(
+        "Forwarded user:",
+        st.context.headers.get("X-Forwarded-Preferred-Username")
+    )
+
     r = requests.post(
         INVOCATIONS_URL,
         headers={
