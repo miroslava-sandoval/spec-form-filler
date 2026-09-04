@@ -94,6 +94,21 @@ def get_user_token():
     return token
 
 
+# ---------------- Temporary auth diagnostics ----------------
+_debug_token = get_user_token()
+
+st.write("User token received:", bool(_debug_token))
+st.write(
+    "Forwarded email:",
+    st.context.headers.get("X-Forwarded-Email")
+)
+st.write(
+    "Forwarded username:",
+    st.context.headers.get("X-Forwarded-Preferred-Username")
+)
+
+
+
 # ---------------- SQL connection helper ----------------
 def get_sql_connection():
     return sql.connect(
@@ -331,11 +346,6 @@ def call_serving(
 
     token = get_user_token()
 
-    st.write("User token received:", bool(token))
-    st.write(
-        "Forwarded user:",
-        st.context.headers.get("X-Forwarded-Preferred-Username")
-    )
 
     r = requests.post(
         INVOCATIONS_URL,
