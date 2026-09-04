@@ -5,7 +5,7 @@ command:
 
 env:
   - name: DATABRICKS_ENDPOINT
-    value: "spec-form-filler-endpoint"
+    value: "material-qualification-form-filler-endpoint"
 
   - name: DATABRICKS_WAREHOUSE_ID
     value: "1184256991047feb"
