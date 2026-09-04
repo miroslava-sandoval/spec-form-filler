@@ -82,6 +82,30 @@ SERVER_HOSTNAME = (
 )
 
 FEEDBACK_DELTA_TABLE = os.environ["FEEDBACK_DELTA_TABLE"]
+
+def test_sql_api():
+    token = get_user_token()
+
+    response = requests.post(
+        f"{HOST}/api/2.0/sql/statements",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "warehouse_id": WAREHOUSE_ID,
+            "catalog": "us_gmsgq_dev",
+            "schema": "gms_us_alyt",
+            "statement": "SELECT 1",
+            "wait_timeout": "10s",
+        },
+        timeout=30,
+    )
+
+    st.write("SQL API status:", response.status_code)
+    st.write("SQL API response:", response.text[:2000])
+
+
 # ---------------- User authentication ----------------
 def get_user_token():
     token = st.context.headers.get("X-Forwarded-Access-Token")
@@ -372,7 +396,7 @@ def call_serving(
 
     return pd.DataFrame(preds)
 
-
+test_sql_api()
 # ---------------- Load dropdown options ----------------
 try:
     mrs_options = load_mrs_categories_from_sql()
