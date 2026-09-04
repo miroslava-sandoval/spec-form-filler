@@ -79,36 +79,19 @@ INVOCATIONS_URL = (
     f"{HOST}/serving-endpoints/{SERVING_ENDPOINT}/invocations"
 )
 
+# Databricks Model Serving caps requests server-side at ~297s,
+# so the client timeout stays just under that.
+SERVING_TIMEOUT_SECONDS = 290
+ENDPOINT_STATUS_URL = f"{HOST}/api/2.0/serving-endpoints/{SERVING_ENDPOINT}"
+READINESS_POLL_SECONDS = 15
+READINESS_MAX_WAIT_SECONDS = 600
+
 SERVER_HOSTNAME = (
     HOST.replace("https://", "")
     .replace("http://", "")
 )
 
 FEEDBACK_DELTA_TABLE = os.environ["FEEDBACK_DELTA_TABLE"]
-
-def test_sql_api():
-    token = get_user_token()
-
-    api_url = f"{HOST}/api/2.0/sql/statements"
-
-    response = requests.post(
-        api_url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "warehouse_id": WAREHOUSE_ID,
-            "catalog": "us_gmsgq_dev",
-            "schema": "gms_us_alyt",
-            "statement": "SELECT 1",
-            "wait_timeout": "10s",
-        },
-        timeout=30,
-    )
-
-    st.write("SQL API status:", response.status_code)
-    st.write("SQL API response:", response.text[:2000])
 
 # ---------------- User authentication ----------------
 def get_user_token():
@@ -120,24 +103,6 @@ def get_user_token():
         )
 
     return token
-
-
-# ---------------- Temporary auth diagnostics ----------------
-_debug_token = get_user_token()
-
-st.write("User token received:", bool(_debug_token))
-st.write(
-    "Forwarded email:",
-    st.context.headers.get("X-Forwarded-Email")
-)
-st.write(
-    "Forwarded username:",
-    st.context.headers.get("X-Forwarded-Preferred-Username")
-)
-st.write("User token received:", bool(_debug_token))
-st.write("Forwarded email:", st.context.headers.get("X-Forwarded-Email"))
-st.write("Warehouse ID:", WAREHOUSE_ID)
-st.write("SQL HTTP path:", SQL_HTTP_PATH)
 
 
 # ---------------- SQL connection helper ----------------
@@ -362,11 +327,54 @@ def load_overviews_from_sql(spec_ids: list[str]) -> pd.DataFrame:
 
 
 # ---------------- Serving call ----------------
+def get_endpoint_ready_state(token):
+    """Return the endpoint's state.ready ("READY"/"NOT_READY"), or None if
+    the status API is unavailable (e.g. missing scope, network error)."""
+    try:
+        r = requests.get(
+            ENDPOINT_STATUS_URL,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        if not r.ok:
+            return None
+        return r.json().get("state", {}).get("ready")
+    except requests.exceptions.RequestException:
+        return None
+
+
+def wait_for_endpoint_ready() -> None:
+    """Poll endpoint status until READY, up to READINESS_MAX_WAIT_SECONDS.
+    Degrades to a no-op if the status API can't be read. Never raises."""
+    token = get_user_token()
+    state = get_endpoint_ready_state(token)
+    if state is None:
+        st.write("Endpoint status unavailable — proceeding with invocation.")
+        return
+    if state == "READY":
+        st.write("Serving endpoint is ready.")
+        return
+
+    st.write(
+        "Serving endpoint is starting up. "
+        f"Waiting up to {READINESS_MAX_WAIT_SECONDS // 60} minutes..."
+    )
+    deadline = time.monotonic() + READINESS_MAX_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        time.sleep(READINESS_POLL_SECONDS)
+        state = get_endpoint_ready_state(token)
+        if state is None or state == "READY":
+            st.write("Serving endpoint is ready.")
+            return
+        st.write(f"Still starting... (state: {state})")
+    st.write("Endpoint not confirmed ready after waiting — attempting invocation anyway.")
+
+
 def call_serving(
     spec_id: str,
     mrs_category: str,
     ttp_ids: str = "",
-    timeout: int = 240,
+    timeout: int = SERVING_TIMEOUT_SECONDS,
 ) -> pd.DataFrame:
     payload = {
         "dataframe_split": {
@@ -400,7 +408,19 @@ def call_serving(
 
     return pd.DataFrame(preds)
 
-test_sql_api()
+
+def call_serving_with_retry(spec_id: str, mrs_category: str, ttp_ids: str = "") -> pd.DataFrame:
+    """Invoke once; on ReadTimeout retry once (the first request warms a
+    scaled-to-zero endpoint even when it times out client-side)."""
+    try:
+        return call_serving(spec_id, mrs_category, ttp_ids=ttp_ids)
+    except requests.exceptions.ReadTimeout:
+        st.write(
+            f"First attempt exceeded {SERVING_TIMEOUT_SECONDS}s — "
+            "the endpoint was likely warming up. Retrying once..."
+        )
+        return call_serving(spec_id, mrs_category, ttp_ids=ttp_ids)
+
 # ---------------- Load dropdown options ----------------
 try:
     mrs_options = load_mrs_categories_from_sql()
@@ -529,12 +549,15 @@ if run_btn:
     try:
         start_time = time.perf_counter()
 
-        with st.spinner("Running extraction..."):
-            df_out = call_serving(
+        with st.status("Running extraction...", expanded=True) as status:
+            wait_for_endpoint_ready()
+            st.write("Invoking model (this can take several minutes)...")
+            df_out = call_serving_with_retry(
                 spec_id,
                 mrs_category,
                 ttp_ids=ttp_ids_str,
             ).reset_index(drop=True)
+            status.update(label="Extraction complete", state="complete", expanded=False)
 
         elapsed_seconds = time.perf_counter() - start_time
 
@@ -552,10 +575,25 @@ if run_btn:
 
     except requests.exceptions.ReadTimeout:
         st.error(
-            "The extraction exceeded the 240-second wait limit. "
-            "The serving endpoint may be starting from zero or processing a large request. "
-            "Please wait a minute and try again."
+            f"The extraction exceeded the {SERVING_TIMEOUT_SECONDS}-second limit on both attempts "
+            "(endpoint readiness was checked and the request was retried once). "
+            "The request may be too large — try fewer TTP documents, or wait a minute and try again."
         )
+        try:
+            endpoint_state = get_endpoint_ready_state(get_user_token())
+        except Exception:
+            endpoint_state = None
+        if endpoint_state == "NOT_READY":
+            st.caption(
+                "Endpoint state: NOT_READY — the endpoint may have a failed deployment; "
+                "check it in the Databricks Serving UI."
+            )
+        elif endpoint_state == "READY":
+            st.caption(
+                "Endpoint state: READY — the extraction itself is exceeding the "
+                "server-side ~297s cap; the served model needs to be optimized "
+                "or the request reduced."
+            )
     except requests.exceptions.RequestException as e:
         st.error("Could not reach the model serving endpoint.")
         st.exception(e)
