@@ -60,6 +60,9 @@ if missing:
 
 # ---------------- Env ----------------
 HOST = os.environ["DATABRICKS_HOST"].rstrip("/")
+
+if not HOST.startswith(("http://", "https://")):
+    HOST = f"https://{HOST}"
 SERVING_ENDPOINT = os.environ["DATABRICKS_ENDPOINT"]
 WAREHOUSE_ID = os.environ["DATABRICKS_WAREHOUSE_ID"]
 
@@ -86,8 +89,10 @@ FEEDBACK_DELTA_TABLE = os.environ["FEEDBACK_DELTA_TABLE"]
 def test_sql_api():
     token = get_user_token()
 
+    api_url = f"{HOST}/api/2.0/sql/statements"
+
     response = requests.post(
-        f"{HOST}/api/2.0/sql/statements",
+        api_url,
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -104,7 +109,6 @@ def test_sql_api():
 
     st.write("SQL API status:", response.status_code)
     st.write("SQL API response:", response.text[:2000])
-
 
 # ---------------- User authentication ----------------
 def get_user_token():
